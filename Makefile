@@ -3,3 +3,6 @@
 .PHONY: run
 run:
 	@go run .
+
+init:
+	sudo docker compose up -d
