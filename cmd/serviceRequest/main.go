@@ -1,24 +1,19 @@
 package main
 
 import (
-	"context"
-	"github.com/PavlushaSource/NsqBench/src/services"
-	"github.com/PavlushaSource/NsqBench/src/services/serviceRequest"
+	"github.com/PavlushaSource/NsqBench/src/services/requestAdapters/serviceRequestNow"
 	"log"
-	"time"
 )
 
 func main() {
-	sr, err := serviceRequest.NewServiceRequest("127.0.0.1:4161", "127.0.0.1:4150")
+	sr, err := serviceRequestNow.NewServiceRequest("127.0.0.1:4161", "127.0.0.1:4150")
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), time.Second*5)
-	defer cancel()
+	defer sr.Close()
 
-	err = sr.Send(ctx, services.RequestTopic, services.ResponseTopic, "bro, вышли мне ответ пж")
-	if err != nil {
+	if err = sr.Run(10); err != nil {
 		log.Fatal(err)
 	}
 }

@@ -28,3 +28,13 @@ func NewProducer(nsqdTCPaddr string) (NsqProducer, error) {
 	}
 	return producer, nil
 }
+
+type Requester interface {
+	Run(iterations int) error
+	Close() error
+}
+
+type Responser interface {
+	Run() error
+	Close() error
+}

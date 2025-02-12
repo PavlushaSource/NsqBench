@@ -1,9 +1,10 @@
-package serviceResponse
+package serviceResponseNow
 
 import (
 	"encoding/json"
 	"fmt"
 	"github.com/PavlushaSource/NsqBench/src/services"
+	"github.com/PavlushaSource/NsqBench/src/services/domain"
 	"github.com/nsqio/go-nsq"
 )
 
@@ -15,7 +16,7 @@ type ServiceResponse struct {
 	Messages       chan *nsq.Message
 }
 
-func (sr *ServiceResponse) Subscribe(topic, channel services.Topic) error {
+func (sr *ServiceResponse) Subscribe(topic domain.Topic, channel domain.Channel) error {
 	c, err := nsq.NewConsumer(string(topic), string(channel), nsq.NewConfig())
 
 	if err != nil {
@@ -38,18 +39,25 @@ func (sr *ServiceResponse) Subscribe(topic, channel services.Topic) error {
 	return nil
 }
 
-func NewServiceResponse(nsqLookupdAddr, nsqdAddr string) (*ServiceResponse, error) {
+func NewServiceResponse(nsqLookupdAddr, nsqdAddr string) (services.Responser, error) {
 	producer, err := services.NewProducer(nsqdAddr)
 	if err != nil {
 		return nil, err
 	}
 
-	return &ServiceResponse{
+	responser := &ServiceResponse{
 		NsqLookupdAddr: nsqLookupdAddr,
 		NsqdAddr:       nsqdAddr,
 		Messages:       make(chan *nsq.Message),
 		Producer:       producer,
-	}, nil
+	}
+
+	err = responser.Subscribe(domain.RequestTopic, domain.ResponseChannel)
+	if err != nil {
+		return nil, err
+	}
+
+	return responser, nil
 }
 
 func (sr *ServiceResponse) Run() error {
@@ -58,12 +66,18 @@ func (sr *ServiceResponse) Run() error {
 		if err := json.Unmarshal(msgReceive.Body, &m); err != nil {
 			return err
 		}
-		fmt.Println("Received your request bro, message: ", m.Payload)
-		msgToSend := services.NewMessage(m.RespTopic, "ServiceResponse accept your request, bro")
+		fmt.Println("Received your request, message: ", m.Payload)
+		msgToSend := services.NewMessage(m.RespTopic, "ServiceResponse accept your request")
 		err := sr.Producer.Publish(m.RespTopic, msgToSend.Marshall())
 		if err != nil {
 			return err
 		}
 	}
+	return nil
+}
+
+func (sr *ServiceResponse) Close() error {
+	sr.Consumer.Stop()
+	sr.Producer.Stop()
 	return nil
 }
