@@ -9,14 +9,15 @@ import (
 )
 
 type ServiceResponse struct {
-	NsqLookupdAddr string
-	NsqdAddr       string
-	Producer       services.NsqProducer
-	Consumer       *nsq.Consumer
-	Messages       chan *nsq.Message
+	NsqLookupdAddr  string
+	NsqdAddr        string
+	Producer        services.NsqProducer
+	Consumer        *nsq.Consumer
+	Messages        chan *nsq.Message
+	CurrentReceived int
 }
 
-func (sr *ServiceResponse) Subscribe(topic domain.Topic, channel domain.Channel) error {
+func (sr *ServiceResponse) Subscribe(topic domain.Topic, channel domain.Channel, iterations int) error {
 	c, err := nsq.NewConsumer(string(topic), string(channel), nsq.NewConfig())
 
 	if err != nil {
@@ -25,7 +26,12 @@ func (sr *ServiceResponse) Subscribe(topic domain.Topic, channel domain.Channel)
 	}
 
 	messageHandler := services.NewMessageHandler(func(message *nsq.Message) error {
+		sr.CurrentReceived++
 		sr.Messages <- message
+
+		if iterations <= sr.CurrentReceived {
+			close(sr.Messages)
+		}
 		return nil
 	})
 
@@ -39,7 +45,7 @@ func (sr *ServiceResponse) Subscribe(topic domain.Topic, channel domain.Channel)
 	return nil
 }
 
-func NewServiceResponse(nsqLookupdAddr, nsqdAddr string) (services.Responser, error) {
+func NewServiceResponse(nsqLookupdAddr, nsqdAddr string, iterations int) (services.Responser, error) {
 	producer, err := services.NewProducer(nsqdAddr)
 	if err != nil {
 		return nil, err
@@ -52,7 +58,7 @@ func NewServiceResponse(nsqLookupdAddr, nsqdAddr string) (services.Responser, er
 		Producer:       producer,
 	}
 
-	err = responser.Subscribe(domain.RequestTopic, domain.ResponseChannel)
+	err = responser.Subscribe(domain.RequestTopic, domain.RequestChannel, iterations)
 	if err != nil {
 		return nil, err
 	}

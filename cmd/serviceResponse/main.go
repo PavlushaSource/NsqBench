@@ -7,7 +7,7 @@ import (
 )
 
 func main() {
-	sr, err := serviceResponseNow.NewServiceResponse("127.0.0.1:4161", "127.0.0.1:4150")
+	sr, err := serviceResponseNow.NewServiceResponse("127.0.0.1:4161", "127.0.0.1:4150", 10)
 	if err != nil {
 		log.Fatal(err)
 	}
