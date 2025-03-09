@@ -1,17 +1,18 @@
-package serviceResponseNow
+package rawNsq
 
 import (
-	"encoding/json"
 	"fmt"
-	"github.com/PavlushaSource/NsqBench/src/services"
-	"github.com/PavlushaSource/NsqBench/src/services/domain"
+	"github.com/PavlushaSource/NsqBench/internal/adapters/nsq/handler"
+	"github.com/PavlushaSource/NsqBench/internal/adapters/nsq/producer"
+	"github.com/PavlushaSource/NsqBench/internal/core/domain"
+	"github.com/PavlushaSource/NsqBench/internal/core/port"
 	"github.com/nsqio/go-nsq"
 )
 
 type ServiceResponse struct {
 	NsqLookupdAddr  string
 	NsqdAddr        string
-	Producer        services.NsqProducer
+	Producer        port.Producer
 	Consumer        *nsq.Consumer
 	Messages        chan *nsq.Message
 	CurrentReceived int
@@ -25,7 +26,7 @@ func (sr *ServiceResponse) Subscribe(topic domain.Topic, channel domain.Channel,
 		return err
 	}
 
-	messageHandler := services.NewMessageHandler(func(message *nsq.Message) error {
+	messageHandler := handler.NewMessageHandler(func(message *nsq.Message) error {
 		sr.CurrentReceived++
 		sr.Messages <- message
 
@@ -45,8 +46,8 @@ func (sr *ServiceResponse) Subscribe(topic domain.Topic, channel domain.Channel,
 	return nil
 }
 
-func NewServiceResponse(nsqLookupdAddr, nsqdAddr string, iterations int) (services.Responser, error) {
-	producer, err := services.NewProducer(nsqdAddr)
+func NewServiceResponse(nsqLookupdAddr, nsqdAddr string, iterations int) (port.ResponseService, error) {
+	p, err := producer.NewProducer(nsqdAddr)
 	if err != nil {
 		return nil, err
 	}
@@ -55,7 +56,7 @@ func NewServiceResponse(nsqLookupdAddr, nsqdAddr string, iterations int) (servic
 		NsqLookupdAddr: nsqLookupdAddr,
 		NsqdAddr:       nsqdAddr,
 		Messages:       make(chan *nsq.Message),
-		Producer:       producer,
+		Producer:       p,
 	}
 
 	err = responser.Subscribe(domain.RequestTopic, domain.RequestChannel, iterations)
@@ -68,12 +69,13 @@ func NewServiceResponse(nsqLookupdAddr, nsqdAddr string, iterations int) (servic
 
 func (sr *ServiceResponse) Run() error {
 	for msgReceive := range sr.Messages {
-		var m services.Message
-		if err := json.Unmarshal(msgReceive.Body, &m); err != nil {
+		var m domain.Message
+		if err := m.Unmarshall(msgReceive.Body); err != nil {
 			return err
 		}
 		fmt.Println("Received your request, message: ", m.Payload)
-		msgToSend := services.NewMessage(m.RespTopic, "ServiceResponse accept your request")
+
+		msgToSend := domain.NewResponseMessage(m.RespTopic, "ServiceResponse accept your request", m.ID)
 		err := sr.Producer.Publish(m.RespTopic, msgToSend.Marshall())
 		if err != nil {
 			return err

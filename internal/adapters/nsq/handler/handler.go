@@ -1,4 +1,4 @@
-package services
+package handler
 
 import "github.com/nsqio/go-nsq"
 

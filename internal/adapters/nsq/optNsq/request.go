@@ -1,19 +1,22 @@
-package serviceRequestOpt
+package optNsq
 
 import (
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/PavlushaSource/NsqBench/src/services"
-	"github.com/PavlushaSource/NsqBench/src/services/domain"
+	"github.com/PavlushaSource/NsqBench/internal/adapters/nsq/handler"
+	"github.com/PavlushaSource/NsqBench/internal/adapters/nsq/producer"
+	"github.com/PavlushaSource/NsqBench/internal/core/domain"
+	"github.com/PavlushaSource/NsqBench/internal/core/port"
 	"github.com/nsqio/go-nsq"
+	"time"
 )
 
 type ServiceRequestOpt struct {
 	NsqLookupdAddr  string
 	NsqdAddr        string
-	Producer        services.NsqProducer
+	Producer        port.Producer
 	Consumer        *nsq.Consumer
 	ResponseChannel chan *nsq.Message
 }
@@ -37,7 +40,7 @@ func (sr *ServiceRequestOpt) Close() error {
 }
 
 func (sr *ServiceRequestOpt) Send(ctx context.Context, reqTopicName, respTopicName domain.Topic, msg string) error {
-	msgToSend := services.NewMessage(string(respTopicName), msg)
+	msgToSend := domain.NewRequestMessage(string(respTopicName), msg)
 
 	//channelName := fmt.Sprintf("%s-response#ephemeral", msgToSend.ID)
 
@@ -59,7 +62,7 @@ func (sr *ServiceRequestOpt) Send(ctx context.Context, reqTopicName, respTopicNa
 
 			return err
 		case msgReceive := <-sr.ResponseChannel:
-			var m services.Message
+			var m domain.Message
 			if err = json.Unmarshal(msgReceive.Body, &m); err != nil {
 				return err
 			}
@@ -76,12 +79,15 @@ func (sr *ServiceRequestOpt) NewConsumer(consumerTopicName domain.Topic, consume
 		return err
 	}
 
-	messageHandler := services.NewMessageHandler(func(message *nsq.Message) error {
+	messageHandler := handler.NewMessageHandler(func(message *nsq.Message) error {
 		sr.ResponseChannel <- message
 		return nil
 	})
 	c.AddHandler(messageHandler)
+
+	now := time.Now()
 	err = c.ConnectToNSQD(sr.NsqdAddr)
+	fmt.Println("Time connect to NSQLookupAddr: ", time.Since(now))
 	if err != nil {
 		fmt.Println("Err connect to NSQLookupAddr")
 		return err
@@ -91,15 +97,15 @@ func (sr *ServiceRequestOpt) NewConsumer(consumerTopicName domain.Topic, consume
 	return nil
 }
 
-func NewServiceRequestOpt(nsqLookupdAddr, nsqdAddr string, consumerTopicName domain.Topic, consumerChannelName domain.Channel) (services.Requester, error) {
-	producer, err := services.NewProducer(nsqdAddr)
+func NewServiceRequestOpt(nsqLookupdAddr, nsqdAddr string, consumerTopicName domain.Topic, consumerChannelName domain.Channel) (port.RequestService, error) {
+	p, err := producer.NewProducer(nsqdAddr)
 	if err != nil {
 		return nil, err
 	}
 
 	requester := &ServiceRequestOpt{
 		NsqLookupdAddr:  nsqLookupdAddr,
-		Producer:        producer,
+		Producer:        p,
 		NsqdAddr:        nsqdAddr,
 		ResponseChannel: make(chan *nsq.Message),
 	}

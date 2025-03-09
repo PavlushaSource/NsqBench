@@ -1,12 +1,13 @@
-package serviceRequestNow
+package rawNsq
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/PavlushaSource/NsqBench/src/services"
-	"github.com/PavlushaSource/NsqBench/src/services/domain"
+	"github.com/PavlushaSource/NsqBench/internal/adapters/nsq/handler"
+	"github.com/PavlushaSource/NsqBench/internal/adapters/nsq/producer"
+	"github.com/PavlushaSource/NsqBench/internal/core/domain"
+	"github.com/PavlushaSource/NsqBench/internal/core/port"
 	"github.com/nsqio/go-nsq"
 	"time"
 )
@@ -14,7 +15,7 @@ import (
 type ServiceRequest struct {
 	NsqLookupdAddr string
 	NsqdAddr       string
-	Producer       services.NsqProducer
+	Producer       port.Producer
 }
 
 func (sr *ServiceRequest) Run(iterations int) error {
@@ -35,14 +36,22 @@ func (sr *ServiceRequest) Close() error {
 }
 
 func (sr *ServiceRequest) Send(ctx context.Context, reqTopicName, respTopicName domain.Topic, msg string) error {
-	msgToSend := services.NewMessage(string(respTopicName), msg)
+	msgToSend := domain.NewRequestMessage(string(respTopicName), msg)
 
-	responseChannel := make(chan *nsq.Message)
+	responseChannel := make(chan *domain.Message)
 
 	channelName := fmt.Sprintf("%s-response#ephemeral", msgToSend.ID)
 
-	messageHandler := services.NewMessageHandler(func(message *nsq.Message) error {
-		responseChannel <- message
+	messageHandler := handler.NewMessageHandler(func(message *nsq.Message) error {
+		var m domain.Message
+		if err := m.Unmarshall(message.Body); err != nil {
+			return err
+		}
+
+		if msgToSend.ID == m.MetaInfo.ReqID {
+			responseChannel <- &m
+		}
+
 		return nil
 	})
 
@@ -52,6 +61,7 @@ func (sr *ServiceRequest) Send(ctx context.Context, reqTopicName, respTopicName 
 		return err
 	}
 	c.AddHandler(messageHandler)
+
 	err = c.ConnectToNSQD(sr.NsqdAddr)
 	if err != nil {
 		fmt.Println("Err connect to NSQLookupAddr")
@@ -59,6 +69,7 @@ func (sr *ServiceRequest) Send(ctx context.Context, reqTopicName, respTopicName 
 	}
 	defer c.Stop()
 
+	// Sleep for each synchronous message
 	time.Sleep(100 * time.Millisecond)
 
 	fmt.Println("Message publish now - ", msgToSend.ID)
@@ -79,25 +90,21 @@ func (sr *ServiceRequest) Send(ctx context.Context, reqTopicName, respTopicName 
 
 			return err
 		case msgReceive := <-responseChannel:
-			var m services.Message
-			if err = json.Unmarshal(msgReceive.Body, &m); err != nil {
-				return err
-			}
-			fmt.Println("receive response, your message:", m.Payload)
+			fmt.Println("receive response, your message:", msgReceive.Payload)
 			return nil
 		}
 	}
 }
 
-func NewServiceRequest(nsqLookupdAddr, nsqdAddr string) (services.Requester, error) {
-	producer, err := services.NewProducer(nsqdAddr)
+func NewServiceRequest(nsqLookupdAddr, nsqdAddr string) (port.RequestService, error) {
+	p, err := producer.NewProducer(nsqdAddr)
 	if err != nil {
 		return nil, err
 	}
 
 	return &ServiceRequest{
 		NsqLookupdAddr: nsqLookupdAddr,
-		Producer:       producer,
+		Producer:       p,
 		NsqdAddr:       nsqdAddr,
 	}, nil
 }
