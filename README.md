@@ -1,24 +1,44 @@
-# NsqBench
+## Repository for benchmarks of different mechanisms for synchronous message sending 
 
-go clean -testcache && go test -bench=BenchmarkNSQMessageNow -benchmem -count=1 -benchtime=1x benchmarks/bench_test.go
+Для запуска бенчмарков, использующих NSQ
+```bash
+make init
+```
 
-go clean -testcache && go test -bench=BenchmarkNSQMessageOpt -benchmem -count=1 -benchtime=1x benchmarks/bench_test.go
+## NSQ панель
 
-
-<!-- Старт NSQ -->
-sudo docker compose up -d
-
-<!-- Остановка NSQ -->
-sudo docker compose down
-
-
-<!-- ping nsqlookupd -->
+#### ping nsqlookupd
+```bash
 curl http://0.0.0.0:4151/ping
+```
 
-<!-- Запусн бенчмарков -->
-go clean -testcache && go test -bench=BenchmarkNSQProducerConsumerBig -benchmem -count=1 -benchtime=1x tests/nsq_benchmarks_test.go
-go clean -testcache && go test -bench=BenchmarkNSQProducerConsumerMedium -benchmem -count=1 -benchtime=1x tests/nsq_benchmarks_test.go
-go clean -testcache && go test -bench=BenchmarkNSQProducerConsumerSmall -benchmem -count=1 -benchtime=1x tests/nsq_benchmarks_test.go
-
-<!-- админка -->
+### admin panel
+```bash
 http://localhost:4171/
+```
+---
+
+
+## Запуск бенчмарков
+
+#### Raw NSQ 
+```bash
+go clean -testcache && go test ./benchmarks/. -bench=Raw -benchtime=1x -count=1
+```
+#### Optimization NSQ
+```bash
+go clean -testcache && go test ./benchmarks/. -bench=Opt -benchtime=1x -count=1
+```
+
+#### Monolith go channels
+```bash
+go clean -testcache && go test ./benchmarks/. -bench=MonolithChannels -benchtime=1x -count=1
+```
+
+#### Monolith shmipc-go
+```bash
+go clean -testcache && go test ./benchmarks/. -bench=Shmipc -benchtime=1x -count=1
+```
+
+---
+

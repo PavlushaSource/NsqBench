@@ -3,6 +3,6 @@ package domain
 type Channel string
 
 const (
-	RequestChannel  Channel = "RequestChannel"
-	ResponseChannel Channel = "ResponseChannel"
+	RequestChannel  Channel = "RequestChannel#ephemeral"
+	ResponseChannel Channel = "ResponseChannel#ephemeral"
 )

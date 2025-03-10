@@ -1,7 +1,11 @@
 package benchmarks
 
 import (
-	"github.com/PavlushaSource/NsqBench/internal/adapters/nsq/optNsq"
+	"context"
+	"fmt"
+	"github.com/PavlushaSource/NsqBench/internal/adapters/monolith/channels"
+	"github.com/PavlushaSource/NsqBench/internal/adapters/monolith/shmipc"
+	"github.com/PavlushaSource/NsqBench/internal/adapters/nsq/optimizationNsq"
 	"github.com/PavlushaSource/NsqBench/internal/adapters/nsq/rawNsq"
 	"github.com/PavlushaSource/NsqBench/internal/core/domain"
 	"github.com/PavlushaSource/NsqBench/internal/core/port"
@@ -15,25 +19,26 @@ type testCase struct {
 }
 
 var TestTable = []testCase{
-	{
-		name: "Sending 10 message",
-		iter: 10,
-	},
 	//{
-	//	name: "Sending 10^2 message",
-	//	iter: 100,
+	//	name: "Sending 10 message",
+	//	iter: 10,
 	//},
-	//{
-	//	name: "Sending 10^7 message",
-	//	iter: 10e7,
+	{
+		name: "Sending 10^3 message",
+		iter: 100,
+	},
+	////{
+	//	name: "Sending 10^4 message",
+	//	iter: 10e4,
 	//},
 }
 
 func RunNsq(requestService port.RequestService, responseService port.ResponseService, iter int) func(b *testing.B) {
+
 	return func(b *testing.B) {
+		ctx, cancel := context.WithCancel(context.Background())
 		b.ResetTimer()
 
-		//defer requestService.Close()
 		defer responseService.Close()
 
 		wg := sync.WaitGroup{}
@@ -45,9 +50,10 @@ func RunNsq(requestService port.RequestService, responseService port.ResponseSer
 			defer wg.Done()
 		}()
 
-		if err := requestService.Run(iter); err != nil {
+		if err := requestService.Run(ctx, iter); err != nil {
 			b.Error(err)
 		}
+		_ = cancel
 		wg.Wait()
 	}
 }
@@ -71,7 +77,7 @@ func BenchmarkRawNsq(b *testing.B) {
 
 func BenchmarkOptNsq(b *testing.B) {
 	for _, tc := range TestTable {
-		requester, err := optNsq.NewServiceRequestOpt("127.0.0.1:4161", "127.0.0.1:4150", domain.ResponseTopic, domain.ResponseChannel)
+		requester, err := optimizationNsq.NewServiceRequest("127.0.0.1:4161", "127.0.0.1:4150")
 		if err != nil {
 			b.Error(err)
 		}
@@ -81,6 +87,59 @@ func BenchmarkOptNsq(b *testing.B) {
 		}
 
 		f := RunNsq(requester, responser, tc.iter)
+		b.Run(tc.name, f)
+
+		requester.Close()
+	}
+}
+
+func RunMonolith(requestService port.RequestService, responseService port.ResponseService, iter int) func(b *testing.B) {
+	return func(b *testing.B) {
+		b.ResetTimer()
+
+		go func() {
+			if err := responseService.Run(); err != nil {
+				b.Error(err)
+			}
+		}()
+
+		if err := requestService.Run(context.Background(), iter); err != nil {
+			b.Error(err)
+		}
+	}
+}
+
+func BenchmarkMonolithChannels(b *testing.B) {
+	for _, tc := range TestTable {
+		responseCh := make(chan domain.Message)
+		requestCh := make(chan domain.Message)
+
+		requester := channels.NewServiceRequest(responseCh, requestCh)
+		responser := channels.NewServiceResponse(requestCh, responseCh)
+
+		f := RunMonolith(requester, responser, tc.iter)
+		b.Run(tc.name, f)
+
+		// not need close channels
+		//responser.Close()
+		//requester.Close()
+	}
+}
+
+func BenchmarkShmipc(b *testing.B) {
+	for _, tc := range TestTable {
+		responser, err := shmipc.NewServiceResponse(tc.iter)
+		if err != nil {
+			b.Error(err)
+		}
+		fmt.Println("HEY")
+
+		requester, err := shmipc.NewServiceRequest()
+		if err != nil {
+			b.Error(err)
+		}
+
+		f := RunMonolith(requester, responser, tc.iter)
 		b.Run(tc.name, f)
 	}
 }

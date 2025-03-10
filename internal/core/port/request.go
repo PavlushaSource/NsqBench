@@ -1,6 +1,10 @@
 package port
 
+import (
+	"context"
+)
+
 type RequestService interface {
-	Run(iterations int) error
+	Run(ctx context.Context, iterations int) error
 	Close() error
 }

@@ -33,10 +33,12 @@ func (sr *ServiceResponse) Subscribe(topic domain.Topic, channel domain.Channel,
 		if iterations <= sr.CurrentReceived {
 			close(sr.Messages)
 		}
+
 		return nil
 	})
 
 	c.AddHandler(messageHandler)
+	c.SetLoggerLevel(nsq.LogLevelError)
 	err = c.ConnectToNSQD(sr.NsqdAddr)
 	if err != nil {
 		fmt.Println("Err connect to NSQLookupAddr")
@@ -73,7 +75,7 @@ func (sr *ServiceResponse) Run() error {
 		if err := m.Unmarshall(msgReceive.Body); err != nil {
 			return err
 		}
-		fmt.Println("Received your request, message: ", m.Payload)
+		//fmt.Println("Received your request, message: ", m.Payload)
 
 		msgToSend := domain.NewResponseMessage(m.RespTopic, "ServiceResponse accept your request", m.ID)
 		err := sr.Producer.Publish(m.RespTopic, msgToSend.Marshall())

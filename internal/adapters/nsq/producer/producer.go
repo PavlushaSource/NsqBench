@@ -11,5 +11,6 @@ func NewProducer(nsqdTCPaddr string) (port.Producer, error) {
 	if err != nil {
 		return nil, err
 	}
+	producer.SetLoggerLevel(nsq.LogLevelError)
 	return producer, nil
 }

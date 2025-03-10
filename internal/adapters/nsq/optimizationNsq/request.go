@@ -1,24 +1,25 @@
-package rawNsq
+package optimizationNsq
 
 import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/PavlushaSource/NsqBench/internal/adapters/nsq/handler"
 	"github.com/PavlushaSource/NsqBench/internal/adapters/nsq/producer"
 	"github.com/PavlushaSource/NsqBench/internal/core/domain"
 	"github.com/PavlushaSource/NsqBench/internal/core/port"
 	"github.com/nsqio/go-nsq"
-	"time"
 )
 
 type ServiceRequest struct {
-	NsqLookupdAddr string
-	NsqdAddr       string
-	Producer       port.Producer
+	NsqLookupdAddr  string
+	NsqdAddr        string
+	Producer        port.Producer
+	ResponseChannel chan *nsq.Message
 }
 
 func (sr *ServiceRequest) Run(ctx context.Context, iterations int) error {
+	//ctx := context.Background()
+
 	for i := 0; i < iterations; i++ {
 		err := sr.Send(ctx, domain.RequestTopic, domain.ResponseTopic, "hello")
 		if err != nil {
@@ -30,53 +31,43 @@ func (sr *ServiceRequest) Run(ctx context.Context, iterations int) error {
 
 func (sr *ServiceRequest) Close() error {
 	sr.Producer.Stop()
+	ConsumerFabricInstance.Stop()
 	return nil
 }
 
 func (sr *ServiceRequest) Send(ctx context.Context, reqTopicName, respTopicName domain.Topic, msg string) error {
 	msgToSend := domain.NewRequestMessage(string(respTopicName), msg)
 
-	responseChannel := make(chan *domain.Message)
+	respCh := Router.RegisterChannel(msgToSend.ID)
 
-	channelName := fmt.Sprintf("%s-response#ephemeral", msgToSend.ID)
-
-	messageHandler := handler.NewMessageHandler(func(message *nsq.Message) error {
+	handleFunc := func(message *nsq.Message) error {
 		var m domain.Message
 		if err := m.Unmarshall(message.Body); err != nil {
-			return err
+			return fmt.Errorf("unmarshal message failed: %w", err)
 		}
 
-		if msgToSend.ID == m.MetaInfo.ReqID {
-			responseChannel <- &m
+		if ch, ok := Router.GetChannel(m.MetaInfo.ReqID); ok {
+			//fmt.Println("receive response, your message:", m.Payload)
+			ch <- &m
 		}
 
 		return nil
-	})
-
-	c, err := nsq.NewConsumer(string(respTopicName), channelName, nsq.NewConfig())
-	if err != nil {
-		fmt.Println("Err new consumer")
-		return err
 	}
-	c.SetLoggerLevel(nsq.LogLevelError)
-	c.AddHandler(messageHandler)
 
-	err = c.ConnectToNSQD(sr.NsqdAddr)
+	c, err := ConsumerFabricInstance.NewSyncConsumer(
+		respTopicName, domain.ResponseChannel, sr.NsqdAddr, handleFunc)
 
+	// consumer instance not needed for sync request
+	_ = c
 	if err != nil {
-		return err
+		return fmt.Errorf("new sync consumer failed: %w", err)
 	}
-	defer c.Stop()
-
-	// Sleep for each synchronous message
-	time.Sleep(100 * time.Millisecond)
-
-	//fmt.Println("Message publish now - ", msgToSend.ID)
 
 	err = sr.Producer.Publish(string(reqTopicName), msgToSend.Marshall())
 	if err != nil {
 		return err
 	}
+	//fmt.Println("Message publish now - ", msgToSend.ID)
 
 	//fmt.Println("Start wait response msg")
 	for {
@@ -87,10 +78,8 @@ func (sr *ServiceRequest) Send(ctx context.Context, reqTopicName, respTopicName 
 				return fmt.Errorf("error: Context timeout")
 			}
 
-			return err
-		case msgReceive := <-responseChannel:
-			_ = msgReceive
-			//fmt.Println("receive response, your message:", msgReceive.Payload)
+			return nil
+		case <-respCh:
 			return nil
 		}
 	}
@@ -98,14 +87,16 @@ func (sr *ServiceRequest) Send(ctx context.Context, reqTopicName, respTopicName 
 
 func NewServiceRequest(nsqLookupdAddr, nsqdAddr string) (port.RequestService, error) {
 	p, err := producer.NewProducer(nsqdAddr)
-
 	if err != nil {
 		return nil, err
 	}
 
-	return &ServiceRequest{
-		NsqLookupdAddr: nsqLookupdAddr,
-		Producer:       p,
-		NsqdAddr:       nsqdAddr,
-	}, nil
+	requester := &ServiceRequest{
+		NsqLookupdAddr:  nsqLookupdAddr,
+		Producer:        p,
+		NsqdAddr:        nsqdAddr,
+		ResponseChannel: make(chan *nsq.Message),
+	}
+
+	return requester, nil
 }
